@@ -19,10 +19,14 @@ Primary down → try CF1 → try CF_STARLINK → try Mars Butterfly
 ## Setup
 
 1. Download or clone this repo to your Mac
-2. Double-click **`WiFi Auto-Switch.app`**
-3. Click **Install** — that's it
+2. Build the app (one-time): open Terminal in this folder and run:
+   ```bash
+   osacompile -o "WiFi Auto-Switch.app" "WiFi Auto-Switch.applescript"
+   ```
+3. Double-click **`WiFi Auto-Switch.app`**
+4. Click **Install** — that's it
 
-The app gives you a menu to **Install**, **Check Status**, **Start/Stop**, or **Uninstall** — all from native macOS dialogs. No Terminal needed.
+The app gives you a menu to **Install**, **Check Status**, **Start/Stop Service**, or **Uninstall** — all from native macOS dialogs. No Terminal needed after setup.
 
 > **First time opening?** macOS may show a security warning. Right-click the app, choose "Open", then click "Open" in the dialog. You only need to do this once.
 
@@ -45,8 +49,8 @@ After changing configuration, open the app and choose **Reinstall** to apply cha
 | Log | Location |
 |-----|----------|
 | Script log | `~/.wifi-auto-switch.log` |
-| LaunchAgent stdout | `/tmp/wifi-auto-switch.stdout.log` |
-| LaunchAgent stderr | `/tmp/wifi-auto-switch.stderr.log` |
+| Service stdout | `~/.wifi-auto-switch/stdout.log` |
+| Service stderr | `~/.wifi-auto-switch/stderr.log` |
 
 ## Where Files Are Installed
 
@@ -56,24 +60,6 @@ All files live in your home folder — no admin access needed:
 |------|----------|
 | Script | `~/.wifi-auto-switch/wifi-auto-switch.sh` |
 | Login service | `~/Library/LaunchAgents/com.user.wifi-auto-switch.plist` |
-
-## Advanced: Manual Setup
-
-If you prefer using Terminal:
-
-```bash
-# Install
-mkdir -p ~/.wifi-auto-switch
-cp wifi-auto-switch.sh ~/.wifi-auto-switch/
-chmod +x ~/.wifi-auto-switch/wifi-auto-switch.sh
-cp com.user.wifi-auto-switch.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.user.wifi-auto-switch.plist
-
-# Uninstall
-launchctl unload ~/Library/LaunchAgents/com.user.wifi-auto-switch.plist
-rm ~/Library/LaunchAgents/com.user.wifi-auto-switch.plist
-rm -rf ~/.wifi-auto-switch
-```
 
 ## Requirements
 

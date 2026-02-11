@@ -2,10 +2,11 @@
 -- A native macOS app to install, manage, and remove WiFi Auto-Switch
 
 on run
-	set installDir to (POSIX path of (path to home folder)) & ".wifi-auto-switch"
+	set homeDir to POSIX path of (path to home folder)
+	set installDir to homeDir & ".wifi-auto-switch"
 	set scriptPath to installDir & "/wifi-auto-switch.sh"
 	set plistName to "com.user.wifi-auto-switch"
-	set launchAgentPath to (POSIX path of (path to home folder)) & "Library/LaunchAgents/" & plistName & ".plist"
+	set launchAgentPath to homeDir & "Library/LaunchAgents/" & plistName & ".plist"
 
 	-- Check if installed
 	set isInstalled to fileExists(scriptPath)
@@ -14,7 +15,7 @@ on run
 	-- Build menu based on current state
 	if isInstalled and isRunning then
 		set statusText to "Status: Installed and Running"
-		set menuOptions to {"Check Status", "Reinstall", "Uninstall", "Quit"}
+		set menuOptions to {"Check Status", "Stop Service", "Reinstall", "Uninstall", "Quit"}
 	else if isInstalled and not isRunning then
 		set statusText to "Status: Installed but Not Running"
 		set menuOptions to {"Start Service", "Check Status", "Reinstall", "Uninstall", "Quit"}
@@ -35,9 +36,11 @@ Choose an action:" with title "WiFi Auto-Switch" default items {item 1 of menuOp
 	else if userChoice is "Uninstall" then
 		doUninstall(installDir, plistName, launchAgentPath)
 	else if userChoice is "Check Status" then
-		doStatus(plistName)
+		doStatus(plistName, installDir)
 	else if userChoice is "Start Service" then
 		doStart(plistName, launchAgentPath)
+	else if userChoice is "Stop Service" then
+		doStop(plistName, launchAgentPath)
 	else if userChoice is "Quit" then
 		return
 	end if
@@ -90,14 +93,17 @@ on doInstall(installDir, scriptPath, plistName, launchAgentPath)
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
     <key>StandardOutPath</key>
-    <string>/tmp/wifi-auto-switch.stdout.log</string>
+    <string>" & installDir & "/stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/wifi-auto-switch.stderr.log</string>
+    <string>" & installDir & "/stderr.log</string>
 </dict>
 </plist>"
 
-	set launchAgentsDir to (POSIX path of (path to home folder)) & "Library/LaunchAgents"
+	set homeDir to POSIX path of (path to home folder)
+	set launchAgentsDir to homeDir & "Library/LaunchAgents"
 	do shell script "mkdir -p " & quoted form of launchAgentsDir
 	do shell script "echo " & quoted form of plistContent & " > " & quoted form of launchAgentPath
 
@@ -144,19 +150,19 @@ on doUninstall(installDir, plistName, launchAgentPath)
 end doUninstall
 
 -- ===== Status =====
-on doStatus(plistName)
+on doStatus(plistName, installDir)
 	set isRunning to checkRunning(plistName)
 
 	-- Get current WiFi
 	set currentWifi to "Unknown"
 	try
 		set wifiInterface to do shell script "networksetup -listallhardwareports | awk '/Wi-Fi/{getline; print $2}'"
-		set currentWifi to do shell script "networksetup -getairportnetwork " & wifiInterface & " | sed 's/Current Wi-Fi Network: //'"
+		set currentWifi to do shell script "networksetup -getairportnetwork " & quoted form of wifiInterface & " | sed 's/Current Wi-Fi Network: //'"
 	end try
 
 	-- Get recent logs
 	set recentLogs to "(no logs yet)"
-	set logFile to (POSIX path of (path to home folder)) & ".wifi-auto-switch.log"
+	set logFile to installDir & "/../.wifi-auto-switch.log"
 	try
 		set recentLogs to do shell script "tail -10 " & quoted form of logFile
 	end try
@@ -192,6 +198,22 @@ on doStart(plistName, launchAgentPath)
 	end if
 end doStart
 
+-- ===== Stop Service =====
+on doStop(plistName, launchAgentPath)
+	try
+		do shell script "launchctl bootout gui/$(id -u)/" & plistName & " 2>/dev/null || launchctl unload " & quoted form of launchAgentPath & " 2>/dev/null"
+	end try
+
+	delay 1
+
+	if checkRunning(plistName) then
+		display dialog "Could not stop the service. Try logging out and back in." with title "WiFi Auto-Switch" buttons {"OK"} default button "OK" with icon caution
+	else
+		display dialog "WiFi Auto-Switch has been stopped." & return & return & ¬
+			"It will not restart until you start it again or log out and back in." with title "WiFi Auto-Switch" buttons {"OK"} default button "OK" with icon note
+	end if
+end doStop
+
 -- ===== Helpers =====
 on fileExists(filePath)
 	try
@@ -204,8 +226,13 @@ end fileExists
 
 on checkRunning(plistName)
 	try
-		do shell script "launchctl list " & plistName & " 2>/dev/null"
-		return true
+		set output to do shell script "launchctl list " & plistName & " 2>/dev/null"
+		-- Check for an actual PID (not just registered)
+		if output contains "\"PID\" =" then
+			return true
+		else
+			return false
+		end if
 	on error
 		return false
 	end try

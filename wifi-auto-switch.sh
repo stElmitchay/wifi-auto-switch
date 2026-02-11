@@ -47,12 +47,18 @@ detect_wifi_interface() {
 }
 
 get_current_network() {
-    networksetup -getairportnetwork "$WIFI_INTERFACE" 2>/dev/null | sed 's/Current Wi-Fi Network: //'
+    local output
+    output=$(networksetup -getairportnetwork "$WIFI_INTERFACE" 2>/dev/null)
+    if [[ "$output" == Current\ Wi-Fi\ Network:* ]]; then
+        echo "$output" | sed 's/Current Wi-Fi Network: //'
+    else
+        echo ""
+    fi
 }
 
 check_internet() {
     for target in "${PING_TARGETS[@]}"; do
-        if ping -c 1 -W 2 "$target" &>/dev/null; then
+        if ping -c 1 -W 2000 "$target" &>/dev/null; then
             return 0
         fi
     done
@@ -123,12 +129,14 @@ log "WiFi Auto-Switch starting..."
 detect_wifi_interface
 
 PRIMARY_NETWORK=$(get_current_network)
-if [[ -z "$PRIMARY_NETWORK" || "$PRIMARY_NETWORK" == *"not associated"* ]]; then
-    log "WARNING: Not connected to any WiFi. Will monitor for connectivity."
-    PRIMARY_NETWORK=""
-else
-    log "Primary network detected: $PRIMARY_NETWORK"
+if [[ -z "$PRIMARY_NETWORK" ]]; then
+    log "WARNING: Not connected to any WiFi. Waiting for a connection..."
+    while [[ -z "$PRIMARY_NETWORK" ]]; do
+        sleep "$CHECK_INTERVAL"
+        PRIMARY_NETWORK=$(get_current_network)
+    done
 fi
+log "Primary network detected: $PRIMARY_NETWORK"
 
 log "Backup networks: ${BACKUP_NETWORKS[*]}"
 log "Check interval: ${CHECK_INTERVAL}s | Fail threshold: $FAIL_THRESHOLD"
@@ -136,7 +144,19 @@ log "========================================="
 
 LAST_PRIMARY_CHECK=$(date +%s)
 
+# Truncate log if it exceeds 1MB
+MAX_LOG_SIZE=1048576
+
 while true; do
+    # Log rotation
+    if [[ -f "$LOG_FILE" ]]; then
+        LOG_SIZE=$(stat -f%z "$LOG_FILE" 2>/dev/null || echo 0)
+        if [[ $LOG_SIZE -ge $MAX_LOG_SIZE ]]; then
+            tail -500 "$LOG_FILE" > "${LOG_FILE}.tmp" && mv "${LOG_FILE}.tmp" "$LOG_FILE"
+            log "Log file trimmed (exceeded 1MB)"
+        fi
+    fi
+
     if check_internet; then
         CURRENT_FAIL_COUNT=0
 
@@ -155,7 +175,7 @@ while true; do
 
         if [[ $CURRENT_FAIL_COUNT -ge $FAIL_THRESHOLD ]]; then
             CURRENT_NETWORK=$(get_current_network)
-            log "Internet down on '$CURRENT_NETWORK'. Switching to backup..."
+            log "Internet down on '${CURRENT_NETWORK:-unknown network}'. Switching to backup..."
             CURRENT_FAIL_COUNT=0
             switch_to_backup
             LAST_PRIMARY_CHECK=$(date +%s)
